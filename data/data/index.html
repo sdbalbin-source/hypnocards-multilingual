@@ -1,0 +1,984 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>HypnoCards</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;0,700;1,300;1,400&family=DM+Mono:wght@300;400&family=Heebo:wght@300;400;700&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --primary-bg: #000000;
+            --card-glass: rgba(20, 20, 25, 0.95);
+            --border-glass: rgba(255, 255, 255, 0.15);
+        }
+
+        body {
+            font-family: 'DM Mono', monospace;
+            background-color: var(--primary-bg);
+            color: #e0e0e0;
+            overflow: hidden;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        /* RTL support — applied when lang=he or any RTL language */
+        body.rtl {
+            font-family: 'Heebo', sans-serif;
+            direction: rtl;
+        }
+        body.rtl .serif-font { font-family: 'Heebo', sans-serif; }
+        body.rtl .ltr-only { display: none; }
+        body.ltr .rtl-only { display: none; }
+
+        .serif-font { font-family: 'Cormorant Garamond', serif; }
+
+        /* --- Hypnotic Spiral Background --- */
+        .hypno-container {
+            position: absolute; top: 0; left: 0;
+            width: 100%; height: 100%;
+            overflow: hidden; z-index: -2; background: #000;
+        }
+        .hypno-spiral {
+            position: absolute; top: 50%; left: 50%;
+            width: 150vmax; height: 150vmax;
+            transform-origin: center;
+            transform: translate(-50%, -50%);
+            animation: spiralSpin 40s linear infinite;
+            opacity: 0.18;
+        }
+        @keyframes spiralSpin { from { transform: translate(-50%,-50%) rotate(0deg); } to { transform: translate(-50%,-50%) rotate(360deg); } }
+
+        /* Glass Panel */
+        .glass-panel {
+            background: var(--card-glass);
+            border: 1px solid var(--border-glass);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+        }
+
+        /* Card */
+        .card-inner {
+            position: relative; width: 100%;
+            transform-style: preserve-3d;
+            transition: transform 0.6s cubic-bezier(0.4,0,0.2,1);
+        }
+        .card-inner.flipped { transform: rotateY(180deg); }
+        .card-face, .card-face-back {
+            position: absolute; inset: 0;
+            backface-visibility: hidden;
+            -webkit-backface-visibility: hidden;
+            border-radius: 1.5rem;
+            border-top: 4px solid rgba(255,255,255,0.2);
+            overflow: hidden;
+        }
+        .card-face { background: var(--card-glass); backdrop-filter: blur(20px); }
+        .card-face-back {
+            background: linear-gradient(135deg, rgba(30,10,60,0.98), rgba(10,5,30,0.98));
+            border-color: rgba(168,85,247,0.4);
+            transform: rotateY(180deg);
+        }
+        .card-header-fixed {
+            flex-shrink: 0; padding: 1.25rem 1.25rem 0.5rem;
+            background: linear-gradient(to bottom, rgba(10,8,20,0.95), transparent);
+        }
+        .card-scroll-area {
+            flex: 1; overflow-y: auto; padding: 0.5rem 1.25rem 0.5rem;
+            -webkit-overflow-scrolling: touch;
+        }
+        .card-scroll-area::-webkit-scrollbar { width: 3px; }
+        .card-scroll-area::-webkit-scrollbar-thumb { background: rgba(168,85,247,0.3); border-radius: 3px; }
+        .card-footer-fixed {
+            flex-shrink: 0; padding: 0.75rem 1.25rem 1rem;
+            background: linear-gradient(to top, rgba(10,8,20,0.9), transparent);
+        }
+        .card-content-text { line-height: 1.75; }
+        .card-content-wrapper { padding: 0.5rem 0.25rem; }
+
+        .info-btn {
+            position: absolute; top: 0.75rem;
+            width: 28px; height: 28px;
+            background: rgba(168,85,247,0.15);
+            border: 1px solid rgba(168,85,247,0.3);
+            border-radius: 50%;
+            color: #a855f7; font-size: 0.8rem;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; z-index: 10; transition: all 0.2s;
+        }
+        body.ltr .info-btn { right: 0.75rem; }
+        body.rtl .info-btn { left: 0.75rem; right: auto; }
+        .info-btn:hover { background: rgba(168,85,247,0.3); }
+
+        .card-nav-arrow { opacity: 0; transition: opacity 0.2s; }
+        .card-nav-arrow:hover { opacity: 1; }
+
+        .carousel-item {
+            padding: 0.3rem 0.75rem; border-radius: 999px;
+            font-size: 0.7rem; cursor: pointer;
+            border: 1px solid rgba(255,255,255,0.1);
+            color: rgba(255,255,255,0.35);
+            white-space: nowrap;
+            transition: all 0.2s;
+            font-family: 'DM Mono', monospace;
+        }
+        body.rtl .carousel-item { font-family: 'Heebo', sans-serif; }
+
+        /* Slide animations */
+        @keyframes slideOutLeft  { to   { transform: translateX(-110%); opacity: 0; } }
+        @keyframes slideOutRight { to   { transform: translateX(110%);  opacity: 0; } }
+        @keyframes slideInRight  { from { transform: translateX(110%);  opacity: 0; } }
+        @keyframes slideInLeft   { from { transform: translateX(-110%); opacity: 0; } }
+        .slide-out-left  { animation: slideOutLeft  0.25s ease forwards; }
+        .slide-out-right { animation: slideOutRight 0.25s ease forwards; }
+        .slide-in-right  { animation: slideInRight  0.3s ease forwards;  }
+        .slide-in-left   { animation: slideInLeft   0.3s ease forwards;  }
+
+        @keyframes recordPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.4); } 50% { box-shadow: 0 0 0 12px rgba(239,68,68,0); } }
+        .recording-pulse { animation: recordPulse 1.2s ease-in-out infinite; }
+
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .perspective-1000 { perspective: 1000px; }
+
+        /* Language Switcher */
+        .lang-switcher {
+            display: flex; gap: 0.4rem;
+            position: absolute; top: 1rem; z-index: 100;
+        }
+        body.ltr .lang-switcher { right: 1rem; }
+        body.rtl .lang-switcher { left: 1rem; right: auto; }
+
+        .lang-btn {
+            padding: 0.2rem 0.6rem;
+            border-radius: 999px;
+            font-size: 0.65rem;
+            font-family: 'DM Mono', monospace;
+            border: 1px solid rgba(255,255,255,0.15);
+            color: rgba(255,255,255,0.4);
+            background: rgba(255,255,255,0.05);
+            cursor: pointer;
+            transition: all 0.2s;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+        .lang-btn:hover { border-color: rgba(168,85,247,0.5); color: rgba(255,255,255,0.8); }
+        .lang-btn.active { border-color: #a855f7; color: #d8b4fe; background: rgba(168,85,247,0.15); }
+        .lang-btn.disabled { opacity: 0.3; cursor: not-allowed; pointer-events: none; }
+
+        #app { position: relative; width: 100vw; height: 100dvh; overflow: hidden; }
+    </style>
+</head>
+<body class="ltr">
+
+    <!-- Spiral Background -->
+    <div class="hypno-container">
+        <svg class="hypno-spiral" viewBox="0 0 800 800" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+                <radialGradient id="sg" cx="50%" cy="50%" r="50%">
+                    <stop offset="0%" stop-color="#9333ea" stop-opacity="0.6"/>
+                    <stop offset="40%" stop-color="#6366f1" stop-opacity="0.3"/>
+                    <stop offset="100%" stop-color="#000" stop-opacity="0"/>
+                </radialGradient>
+            </defs>
+            <circle cx="400" cy="400" r="380" fill="url(#sg)"/>
+            <g fill="none" stroke="rgba(168,85,247,0.3)" stroke-width="1">
+                <circle cx="400" cy="400" r="50"/><circle cx="400" cy="400" r="100"/>
+                <circle cx="400" cy="400" r="150"/><circle cx="400" cy="400" r="200"/>
+                <circle cx="400" cy="400" r="250"/><circle cx="400" cy="400" r="300"/>
+                <circle cx="400" cy="400" r="350"/>
+            </g>
+            <g stroke="rgba(99,102,241,0.2)" stroke-width="0.5" fill="none">
+                <line x1="400" y1="20" x2="400" y2="780"/>
+                <line x1="20" y1="400" x2="780" y2="400"/>
+                <line x1="130" y1="130" x2="670" y2="670"/>
+                <line x1="670" y1="130" x2="130" y2="670"/>
+            </g>
+        </svg>
+    </div>
+
+    <div id="app"></div>
+
+    <script>
+    // ============================================================
+    // LANGUAGE SYSTEM
+    // ============================================================
+
+    /**
+     * ADDING A NEW LANGUAGE:
+     * 1. Add an entry to LANGUAGE_CONFIG below
+     * 2. Drop the CSV file in /data/ named cards_XX.csv (XX = lang code)
+     * 3. Done — the switcher appears automatically
+     *
+     * RTL languages: set dir: 'rtl'
+     * Translations: fill in the ui{} object
+     */
+    const LANGUAGE_CONFIG = {
+        en: {
+            label: 'EN',
+            dir: 'ltr',
+            csvFile: 'data/cards_en.csv',
+            themeOrder: ['Freedom','Joy','Mischief','Playfulness','Safety & Trust','Relaxation','Pleasure','Desire','Sexy','Wildness'],
+            defaultExcluded: ['Deepeners','Convincers','Triggers','Pleasure Metaphors'],
+            ui: {
+                title: 'HypnoCards',
+                subtitle: 'Master Edition',
+                continueBtn: 'Continue to Practice',
+                loadCSV: 'Load CSV file',
+                reimportCSV: 'Re-import CSV',
+                selectMode: 'Select Practice Mode',
+                basicDeck: 'Basic Deck',
+                basicDeckDesc: 'A balanced deck without advanced topics.',
+                customDeck: 'Custom Deck',
+                customDeckDesc: 'Choose specific categories for focused practice.',
+                myRecordings: 'My Recordings',
+                savedRecordings: (n) => `${n} saved recordings`,
+                filterCategories: 'Filter Categories',
+                startSession: 'Start Session',
+                myArchive: 'My Archive',
+                noRecordings: 'No saved recordings yet.',
+                resetAll: 'Reset all data',
+                resetConfirm: 'This will delete all data including favorites and recordings.\nContinue?',
+                loadedMsg: (n) => `Loaded successfully!\n${n} unique patterns detected.`,
+                selectCategory: 'Please select at least one category.',
+                noCards: 'No cards found for this selection.',
+                micDenied: 'Microphone access denied.',
+                patternType: 'Pattern Type',
+                patternStructure: 'Pattern Structure',
+                tapToReturn: 'Tap i to return',
+                noContent: 'No content found for this theme.',
+            }
+        },
+        he: {
+            label: 'HE',
+            dir: 'rtl',
+            csvFile: 'data/cards_he.csv',
+            themeOrder: ['חופש','שמחה','שובבות','משחקיות','ביטחון ואמון','רגיעה','הנאה','תשוקה','סקסי','פראיות'],
+            defaultExcluded: ['העמקות','משכנעים','מילות קוד','מטאפורות עונג'],
+            ui: {
+                title: 'היפנוקארדס',
+                subtitle: 'מהדורת מאסטר',
+                continueBtn: 'המשך לתרגול',
+                loadCSV: 'טען קובץ CSV',
+                reimportCSV: 'טען מחדש',
+                selectMode: 'בחר מצב תרגול',
+                basicDeck: 'חפיסה בסיסית',
+                basicDeckDesc: 'חפיסה מאוזנת ללא נושאים מתקדמים.',
+                customDeck: 'חפיסה מותאמת',
+                customDeckDesc: 'בחר קטגוריות ספציפיות לתרגול ממוקד.',
+                myRecordings: 'ההקלטות שלי',
+                savedRecordings: (n) => `${n} הקלטות שמורות`,
+                filterCategories: 'סנן קטגוריות',
+                startSession: 'התחל סשן',
+                myArchive: 'הארכיון שלי',
+                noRecordings: 'אין הקלטות שמורות עדיין.',
+                resetAll: 'מחק את כל הנתונים',
+                resetConfirm: 'פעולה זו תמחק את כל הנתונים כולל מועדפים והקלטות.\nהמשך?',
+                loadedMsg: (n) => `נטען בהצלחה!\n${n} דפוסים ייחודיים זוהו.`,
+                selectCategory: 'אנא בחר לפחות קטגוריה אחת.',
+                noCards: 'לא נמצאו קלפים לבחירה זו.',
+                micDenied: 'הגישה למיקרופון נדחתה.',
+                patternType: 'סוג דפוס',
+                patternStructure: 'מבנה הדפוס',
+                tapToReturn: 'הקש i לחזרה',
+                noContent: 'לא נמצא תוכן לנושא זה.',
+            }
+        },
+        fr: {
+            label: 'FR',
+            dir: 'ltr',
+            csvFile: 'data/cards_fr.csv',
+            themeOrder: ['Liberté','Joie','Espièglerie','Ludisme','Confiance','Relaxation','Plaisir','Désir','Sexy','Sauvagerie'],
+            defaultExcluded: ['Approfondisseurs','Convaincants','Déclencheurs','Métaphores de plaisir'],
+            ui: {
+                title: 'HypnoCards',
+                subtitle: 'Édition Maître',
+                continueBtn: 'Continuer la pratique',
+                loadCSV: 'Charger fichier CSV',
+                reimportCSV: 'Réimporter CSV',
+                selectMode: 'Choisir le mode',
+                basicDeck: 'Jeu de base',
+                basicDeckDesc: 'Un jeu équilibré sans sujets avancés.',
+                customDeck: 'Jeu personnalisé',
+                customDeckDesc: 'Choisissez des catégories spécifiques.',
+                myRecordings: 'Mes enregistrements',
+                savedRecordings: (n) => `${n} enregistrements`,
+                filterCategories: 'Filtrer les catégories',
+                startSession: 'Démarrer la session',
+                myArchive: 'Mon archive',
+                noRecordings: 'Pas encore d\'enregistrements.',
+                resetAll: 'Réinitialiser tout',
+                resetConfirm: 'Cela supprimera toutes les données.\nContinuer?',
+                loadedMsg: (n) => `Chargé avec succès!\n${n} motifs détectés.`,
+                selectCategory: 'Veuillez sélectionner au moins une catégorie.',
+                noCards: 'Aucune carte trouvée.',
+                micDenied: 'Accès au microphone refusé.',
+                patternType: 'Type de motif',
+                patternStructure: 'Structure du motif',
+                tapToReturn: 'Appuyez sur i pour retourner',
+                noContent: 'Aucun contenu pour ce thème.',
+            }
+        }
+        // ← ADD NEW LANGUAGES HERE following the same pattern
+        // Example:
+        // es: { label:'ES', dir:'ltr', csvFile:'data/cards_es.csv', themeOrder:[...], defaultExcluded:[...], ui:{...} }
+    };
+
+    // ============================================================
+    // APP STATE
+    // ============================================================
+
+    let currentLang = localStorage.getItem('hypno_lang') || 'en';
+    let langCfg = LANGUAGE_CONFIG[currentLang];
+
+    const AppState = {
+        rawRows: [],
+        cards: [],
+        activeDeck: [],
+        categories: [],
+        themes: [],
+        currentIndex: 0,
+        currentTheme: null,
+        isFlipped: false,
+        isRecording: false,
+        get favorites() { return JSON.parse(localStorage.getItem(`${currentLang}_favorites_v1`)) || []; },
+        set favorites(v) { localStorage.setItem(`${currentLang}_favorites_v1`, JSON.stringify(v)); },
+        get recordings() { return JSON.parse(localStorage.getItem(`${currentLang}_recordings_v1`)) || []; },
+        set recordings(v) { localStorage.setItem(`${currentLang}_recordings_v1`, JSON.stringify(v)); },
+        selectedCategories: []
+    };
+
+    let CATEGORY_INFO = {};
+    let cardFlipped = false;
+
+    // ============================================================
+    // LANGUAGE SWITCHING
+    // ============================================================
+
+    function applyLanguage(lang) {
+        currentLang = lang;
+        langCfg = LANGUAGE_CONFIG[lang];
+        localStorage.setItem('hypno_lang', lang);
+
+        // Apply dir + font class
+        document.documentElement.lang = lang;
+        document.documentElement.dir = langCfg.dir;
+        document.body.classList.toggle('rtl', langCfg.dir === 'rtl');
+        document.body.classList.toggle('ltr', langCfg.dir !== 'rtl');
+
+        // Reset state
+        AppState.cards = [];
+        AppState.rawRows = [];
+        AppState.categories = [];
+        AppState.themes = [];
+        CATEGORY_INFO = {};
+
+        // Try loading from storage for this language
+        loadFromStorage();
+        renderWelcome();
+    }
+
+    function switchLanguage(lang) {
+        if (lang === currentLang) return;
+        applyLanguage(lang);
+    }
+
+    function renderLangSwitcher() {
+        const existing = document.getElementById('langSwitcher');
+        if (existing) existing.remove();
+
+        const div = document.createElement('div');
+        div.id = 'langSwitcher';
+        div.className = 'lang-switcher';
+
+        Object.entries(LANGUAGE_CONFIG).forEach(([code, cfg]) => {
+            const btn = document.createElement('button');
+            btn.className = 'lang-btn' + (code === currentLang ? ' active' : '');
+            btn.textContent = cfg.label;
+
+            // Check if CSV data exists for this lang (in storage)
+            const hasData = !!localStorage.getItem(`${code}_cards_data_v1`);
+            // FR and any future langs without data yet — still clickable (they can load CSV)
+
+            btn.onclick = () => switchLanguage(code);
+            div.appendChild(btn);
+        });
+
+        document.body.appendChild(div);
+    }
+
+    // ============================================================
+    // CSV PROCESSING ENGINE
+    // ============================================================
+
+    function processCSV(data) {
+        const t = langCfg.themeOrder;
+        const cleanData = data.map(row => {
+            const newRow = {};
+            Object.keys(row).forEach(k => newRow[k.trim()] = row[k]);
+            return newRow;
+        });
+
+        const categoryInfoRows = cleanData.filter(r => r.ID === 'CATEGORY_INFO');
+        const cardRows = cleanData.filter(r => r.ID !== 'CATEGORY_INFO');
+
+        CATEGORY_INFO = {};
+        categoryInfoRows.forEach(r => {
+            const cat = (r.Category || '').trim();
+            if (cat) {
+                CATEGORY_INFO[cat] = {
+                    pattern: (r.Pattern || '').trim(),
+                    description: (r.Content || '').trim()
+                };
+            }
+        });
+
+        AppState.rawRows = cardRows;
+
+        // Extract themes
+        const themesSet = new Set();
+        const skipThemes = new Set(['Dynamic', 'Static', 'General', '']);
+        cleanData.forEach(row => {
+            if (row.Theme && row.Theme.trim().length > 1 && !skipThemes.has(row.Theme.trim()))
+                themesSet.add(row.Theme.trim());
+        });
+        AppState.themes = t.filter(th => themesSet.has(th));
+        themesSet.forEach(th => { if (!AppState.themes.includes(th)) AppState.themes.push(th); });
+        if (AppState.themes.length === 0) AppState.themes = [...t];
+
+        // Extract categories
+        const catsMap = new Map();
+        cleanData.forEach(row => {
+            const catName = row.Category ? row.Category.trim() : 'General';
+            if (!catsMap.has(catName)) catsMap.set(catName, row.Color || '#A0A0A0');
+        });
+        AppState.categories = Array.from(catsMap).map(([name, color]) => ({name, color}));
+
+        // Build card deck — group rows by Pattern
+        const cardsMap = new Map();
+        cleanData.forEach(row => {
+            const pattern = row.Pattern ? row.Pattern.trim() : null;
+            if (!pattern) return;
+            if (!cardsMap.has(pattern)) {
+                cardsMap.set(pattern, {
+                    id: row.ID,
+                    pattern,
+                    category: row.Category || 'General',
+                    color: row.Color || catsMap.get(row.Category) || '#fff',
+                    variations: {},
+                    staticContent: null
+                });
+            }
+            const card = cardsMap.get(pattern);
+            const theme = row.Theme ? row.Theme.trim() : 'General';
+            const content = row.Content;
+            if (theme === 'General' || theme === 'Dynamic' || theme === 'Static' || !theme) {
+                card.staticContent = card.staticContent ? card.staticContent + '<br><br>' + content : content;
+            } else {
+                card.variations[theme] = card.variations[theme]
+                    ? card.variations[theme] + '<br><br>' + content
+                    : content;
+            }
+        });
+
+        AppState.cards = Array.from(cardsMap.values());
+
+        try {
+            localStorage.setItem(`${currentLang}_cards_data_v1`, JSON.stringify(AppState.cards));
+            localStorage.setItem(`${currentLang}_themes_data_v1`, JSON.stringify(AppState.themes));
+            localStorage.setItem(`${currentLang}_cats_data_v1`, JSON.stringify(AppState.categories));
+        } catch(e) { console.warn('Storage quota exceeded'); }
+
+        alert(langCfg.ui.loadedMsg(AppState.cards.length));
+        renderWelcome();
+    }
+
+    function loadFromStorage() {
+        const savedCards = localStorage.getItem(`${currentLang}_cards_data_v1`);
+        if (savedCards) {
+            try {
+                AppState.cards = JSON.parse(savedCards);
+                const savedThemes = JSON.parse(localStorage.getItem(`${currentLang}_themes_data_v1`) || '[]');
+                const t = langCfg.themeOrder;
+                AppState.themes = t.filter(th => savedThemes.includes(th));
+                savedThemes.forEach(th => { if (!AppState.themes.includes(th)) AppState.themes.push(th); });
+                if (AppState.themes.length === 0) AppState.themes = [...t];
+                AppState.categories = JSON.parse(localStorage.getItem(`${currentLang}_cats_data_v1`) || '[]');
+                return true;
+            } catch(e) { return false; }
+        }
+        return false;
+    }
+
+    // ============================================================
+    // RENDER VIEWS
+    // ============================================================
+
+    function renderWelcome() {
+        renderLangSwitcher();
+        const hasData = AppState.cards.length > 0 || loadFromStorage();
+        const ui = langCfg.ui;
+        const app = document.getElementById('app');
+
+        app.innerHTML = `
+            <div class="flex flex-col items-center justify-center h-full p-6 text-center relative z-10">
+                <div class="mb-12 relative">
+                    <div class="absolute inset-0 bg-purple-500 blur-3xl opacity-20 rounded-full animate-pulse"></div>
+                    <h1 class="text-6xl font-bold serif-font text-white mb-2 tracking-tighter relative z-10">${ui.title.includes(' ') ? ui.title.split(' ')[0] : 'Hypno'}</h1>
+                    <h1 class="text-6xl font-bold serif-font text-purple-400 mb-4 tracking-tighter relative z-10">${ui.title.includes(' ') ? ui.title.split(' ').slice(1).join(' ') : ui.title.replace('Hypno','')}</h1>
+                    <p class="text-gray-400 mt-4 text-sm tracking-widest uppercase" style="font-family:'DM Mono',monospace">${ui.subtitle}</p>
+                </div>
+
+                ${hasData ? `
+                    <button onclick="renderModeSelect()" class="w-full max-w-xs py-5 bg-white/10 border border-white/20 rounded-2xl text-white text-xl font-bold hover:bg-white/20 transition-all mb-6 flex items-center justify-center gap-3 shadow-lg shadow-purple-900/20 serif-font">
+                        <i data-lucide="play-circle"></i> ${ui.continueBtn}
+                    </button>
+                ` : ''}
+
+                <div class="relative group mt-4">
+                    <input type="file" id="csvInput" accept=".csv" class="hidden" onchange="handleFileSelect(event)">
+                    <button onclick="document.getElementById('csvInput').click()" class="px-6 py-3 rounded-full border border-purple-500/30 text-purple-300 text-sm hover:bg-purple-500/10 transition flex items-center gap-2">
+                        <i data-lucide="upload-cloud"></i> ${hasData ? ui.reimportCSV : ui.loadCSV}
+                    </button>
+                </div>
+
+                <button onclick="clearData()" class="absolute bottom-6 text-xs text-gray-600 hover:text-red-400 transition opacity-60 hover:opacity-100">${ui.resetAll}</button>
+            </div>
+        `;
+        lucide.createIcons();
+    }
+
+    function renderModeSelect() {
+        renderLangSwitcher();
+        const ui = langCfg.ui;
+        const app = document.getElementById('app');
+        app.innerHTML = `
+            <div class="flex flex-col h-full p-6 bg-black/20">
+                <div class="flex items-center mb-10 pt-4">
+                    <button onclick="renderWelcome()" class="p-3 bg-white/5 rounded-full hover:bg-white/10 transition"><i data-lucide="arrow-left"></i></button>
+                    <h2 class="text-2xl font-bold text-white mx-4 serif-font">${ui.selectMode}</h2>
+                </div>
+                <div class="grid gap-6">
+                    <button onclick="startSession('all')" class="glass-panel p-8 rounded-3xl text-${langCfg.dir === 'rtl' ? 'right' : 'left'} hover:border-purple-500/50 transition relative overflow-hidden group">
+                        <div class="absolute -right-6 -bottom-6 text-white/5 group-hover:text-purple-500/10 transition-colors"><i data-lucide="layers" size="100"></i></div>
+                        <h3 class="text-2xl font-bold text-white mb-2 serif-font">${ui.basicDeck}</h3>
+                        <p class="serif-font text-gray-400 text-lg font-light leading-relaxed">${ui.basicDeckDesc}</p>
+                    </button>
+                    <button onclick="renderCategorySelect()" class="glass-panel p-8 rounded-3xl text-${langCfg.dir === 'rtl' ? 'right' : 'left'} hover:border-purple-500/50 transition relative overflow-hidden group">
+                        <div class="absolute -right-6 -bottom-6 text-white/5 group-hover:text-purple-500/10 transition-colors"><i data-lucide="list-filter" size="100"></i></div>
+                        <h3 class="text-2xl font-bold text-white mb-2 serif-font">${ui.customDeck}</h3>
+                        <p class="serif-font text-gray-400 text-lg font-light leading-relaxed">${ui.customDeckDesc}</p>
+                    </button>
+                    <button onclick="renderRecordings()" class="glass-panel p-6 rounded-3xl text-${langCfg.dir === 'rtl' ? 'right' : 'left'} hover:border-purple-500/50 transition relative overflow-hidden group mt-4">
+                        <div class="flex items-center gap-4">
+                            <div class="p-3 rounded-full bg-white/5"><i data-lucide="mic"></i></div>
+                            <div>
+                                <h3 class="text-lg font-bold text-white serif-font">${ui.myRecordings}</h3>
+                                <p class="text-gray-500 text-xs">${ui.savedRecordings(AppState.recordings.length)}</p>
+                            </div>
+                        </div>
+                    </button>
+                </div>
+            </div>
+        `;
+        lucide.createIcons();
+    }
+
+    function renderCategorySelect() {
+        renderLangSwitcher();
+        AppState.selectedCategories = [];
+        const ui = langCfg.ui;
+        const catsHtml = AppState.categories.map(cat => `
+            <label class="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/5 cursor-pointer hover:bg-white/10 transition active:scale-95">
+                <div class="flex items-center gap-4">
+                    <div class="w-4 h-4 rounded-full" style="background-color:${cat.color};box-shadow:0 0 10px ${cat.color}"></div>
+                    <span class="text-white font-medium text-lg serif-font">${cat.name}</span>
+                </div>
+                <input type="checkbox" value="${cat.name}" onchange="toggleCategory('${cat.name}')" class="w-6 h-6 accent-purple-500 rounded bg-white/10 border-white/20">
+            </label>
+        `).join('');
+        document.getElementById('app').innerHTML = `
+            <div class="flex flex-col h-full bg-[#050408]">
+                <div class="p-6 pb-2 pt-8">
+                    <div class="flex items-center justify-between mb-4">
+                        <button onclick="renderModeSelect()" class="p-2 bg-white/5 rounded-full"><i data-lucide="arrow-left"></i></button>
+                        <h2 class="text-xl font-bold text-white serif-font">${ui.filterCategories}</h2>
+                        <div class="w-8"></div>
+                    </div>
+                </div>
+                <div class="flex-1 overflow-y-auto px-6 pb-32 space-y-3 no-scrollbar">${catsHtml}</div>
+                <div class="p-6 bg-gradient-to-t from-black via-black to-transparent absolute bottom-0 w-full z-20">
+                    <button onclick="startSession('custom')" class="w-full py-4 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-2xl shadow-lg shadow-purple-900/40 transition transform active:scale-95 serif-font">${ui.startSession}</button>
+                </div>
+            </div>
+        `;
+        lucide.createIcons();
+    }
+
+    function renderRecordings() {
+        renderLangSwitcher();
+        const ui = langCfg.ui;
+        const recs = AppState.recordings;
+        const listHtml = recs.length
+            ? recs.map(rec => `
+                <div class="bg-white/5 border border-white/10 p-4 rounded-xl flex justify-between items-center mb-3">
+                    <div>
+                        <div class="text-white font-bold serif-font">${rec.name}</div>
+                        <div class="text-xs text-gray-500">${rec.date} · ${rec.theme}</div>
+                    </div>
+                    <div class="p-2 bg-purple-600/20 text-purple-400 rounded-full"><i data-lucide="play" width="16"></i></div>
+                </div>`).join('')
+            : `<div class="text-center text-gray-500 mt-10">${ui.noRecordings}</div>`;
+        document.getElementById('app').innerHTML = `
+            <div class="flex flex-col h-full p-6 bg-[#0f0c15]">
+                <div class="flex justify-between items-center mb-8 pt-4">
+                    <button onclick="renderModeSelect()" class="p-2 bg-white/10 rounded-full text-gray-300"><i data-lucide="arrow-left"></i></button>
+                    <h2 class="text-2xl font-bold text-white serif-font">${ui.myArchive}</h2>
+                    <div class="w-8"></div>
+                </div>
+                <div class="overflow-y-auto no-scrollbar pb-10">${listHtml}</div>
+            </div>
+        `;
+        lucide.createIcons();
+    }
+
+    // ============================================================
+    // CARD PLAYER
+    // ============================================================
+
+    function startSession(mode) {
+        const ui = langCfg.ui;
+        const excluded = langCfg.defaultExcluded;
+        if (mode === 'all') {
+            AppState.activeDeck = AppState.cards
+                .filter(c => !excluded.includes(c.category))
+                .sort(() => Math.random() - 0.5);
+            if (AppState.activeDeck.length === 0) AppState.activeDeck = [...AppState.cards].sort(() => Math.random() - 0.5);
+        } else if (mode === 'custom') {
+            if (AppState.selectedCategories.length === 0) return alert(ui.selectCategory);
+            AppState.activeDeck = AppState.cards
+                .filter(c => AppState.selectedCategories.includes(c.category))
+                .sort(() => Math.random() - 0.5);
+        }
+        if (AppState.activeDeck.length === 0) return alert(ui.noCards);
+        AppState.currentIndex = 0;
+        AppState.isFlipped = false;
+        AppState.currentTheme = AppState.themes[0] || langCfg.themeOrder[0];
+        document.getElementById('app').innerHTML = '';
+        renderPlayer();
+    }
+
+    function getCurrentCard() { return AppState.activeDeck[AppState.currentIndex]; }
+
+    function getCardContent(card, theme) {
+        if (card.variations && card.variations[theme]) return card.variations[theme];
+        if (card.variations && card.variations[AppState.themes[0]]) return card.variations[AppState.themes[0]];
+        if (card.staticContent) return card.staticContent;
+        const keys = Object.keys(card.variations || {});
+        if (keys.length > 0) return card.variations[keys[0]];
+        return langCfg.ui.noContent;
+    }
+
+    function renderMarkdown(text) {
+        if (!text) return '';
+        return text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+    }
+
+    function toggleCardFlip() {
+        const inner = document.getElementById('cardInner');
+        if (!inner) return;
+        cardFlipped = !cardFlipped;
+        inner.classList.toggle('flipped', cardFlipped);
+    }
+
+    function renderPlayer() {
+        renderLangSwitcher();
+        const ui = langCfg.ui;
+        const app = document.getElementById('app');
+
+        if (!document.getElementById('player-view')) {
+            app.innerHTML = `
+                <div id="player-view" class="flex flex-col h-full relative overflow-hidden">
+                    <div class="flex items-center justify-between p-4 z-20 pt-6">
+                        <button onclick="document.onkeydown=null; renderModeSelect()" class="p-2 text-gray-400 hover:text-white rounded-full hover:bg-white/5"><i data-lucide="x"></i></button>
+                        <div id="counter" class="text-xs font-mono text-gray-600"></div>
+                        <button id="favBtn" onclick="toggleFavorite()" class="p-2 transition rounded-full hover:bg-white/5 text-gray-600"><i data-lucide="star"></i></button>
+                    </div>
+
+                    <div class="flex-1 flex items-center justify-center p-4 perspective-1000 relative z-10 w-full max-w-lg mx-auto overflow-hidden">
+                        <div class="card-nav-arrow absolute left-0 top-0 bottom-20 w-16 z-30 cursor-pointer flex items-center justify-center" onclick="prevCard()">
+                            <i data-lucide="chevron-left" style="width:22px;height:22px;color:rgba(255,255,255,0.2)"></i>
+                        </div>
+                        <div class="card-nav-arrow absolute right-0 top-14 bottom-20 w-16 z-30 cursor-pointer flex items-center justify-center" onclick="nextCard()">
+                            <i data-lucide="chevron-right" style="width:22px;height:22px;color:rgba(255,255,255,0.2)"></i>
+                        </div>
+
+                        <div class="card-inner w-full h-full pb-8" id="cardInner">
+                            <div id="cardFace" class="card-face glass-panel border-t-4 transition-colors duration-500 flex flex-col">
+                                <button class="info-btn" onclick="toggleCardFlip()" title="${ui.patternType}">i</button>
+                                <div class="card-header-fixed">
+                                    <h2 id="cardPattern" class="text-4xl font-bold serif-font text-white drop-shadow-md leading-tight"></h2>
+                                </div>
+                                <div class="card-scroll-area">
+                                    <div class="card-content-wrapper">
+                                        <div id="cardContentText" class="card-content-text text-xl md:text-2xl text-gray-200 leading-relaxed font-light select-text transition-opacity duration-300 serif-font"></div>
+                                    </div>
+                                </div>
+                                <div class="card-footer-fixed">
+                                    <div id="cardCategory" class="text-sm uppercase tracking-widest font-bold opacity-80" style="font-family:'DM Mono',monospace"></div>
+                                </div>
+                            </div>
+
+                            <div id="cardBack" class="card-face-back flex flex-col">
+                                <button class="info-btn" onclick="toggleCardFlip()" title="✕">✕</button>
+                                <div class="card-header-fixed" style="background:linear-gradient(to bottom,rgba(80,20,120,0.9),transparent)">
+                                    <p style="font-size:0.7rem;letter-spacing:0.15em;color:#a855f7;font-family:'DM Mono',monospace;text-transform:uppercase;margin-bottom:0.5rem">${ui.patternType}</p>
+                                    <h2 id="backCategoryName" class="text-3xl font-bold serif-font text-white leading-tight"></h2>
+                                </div>
+                                <div class="card-scroll-area">
+                                    <div class="card-content-wrapper" style="text-align:${langCfg.dir === 'rtl' ? 'right' : 'left'};padding:0.5rem 0.25rem">
+                                        <div style="background:rgba(168,85,247,0.1);border:1px solid rgba(168,85,247,0.3);border-radius:0.75rem;padding:0.75rem 1rem;margin-bottom:1rem">
+                                            <p style="font-size:0.65rem;letter-spacing:0.12em;color:#a855f7;font-family:'DM Mono',monospace;text-transform:uppercase;margin-bottom:0.4rem">${ui.patternStructure}</p>
+                                            <p id="backPattern" class="serif-font" style="color:#e9d5ff;font-size:1rem;font-style:italic;line-height:1.5"></p>
+                                        </div>
+                                        <p id="backDescription" class="serif-font" style="color:#d1d5db;font-size:1.05rem;line-height:1.7"></p>
+                                    </div>
+                                </div>
+                                <div class="card-footer-fixed">
+                                    <p style="font-size:0.7rem;color:#6b7280;font-family:'DM Mono',monospace">${ui.tapToReturn}</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="shrink-0 flex items-center justify-center gap-2 px-2 pb-2" style="min-height:52px">
+                        <button onclick="shiftTheme(-1)" class="p-2 rounded-full bg-white/5 hover:bg-white/15 active:scale-90 transition text-gray-300 flex-shrink-0" style="width:36px;height:36px;display:flex;align-items:center;justify-content:center">
+                            <i data-lucide="chevron-left" style="width:18px;height:18px"></i>
+                        </button>
+                        <div id="themeStrip" class="flex items-center justify-center gap-2" style="flex:1;max-width:280px"></div>
+                        <button onclick="shiftTheme(1)" class="p-2 rounded-full bg-white/5 hover:bg-white/15 active:scale-90 transition text-gray-300 flex-shrink-0" style="width:36px;height:36px;display:flex;align-items:center;justify-content:center">
+                            <i data-lucide="chevron-right" style="width:18px;height:18px"></i>
+                        </button>
+                    </div>
+
+                    <div class="p-4 pb-8 flex items-center justify-center gap-10 z-20 bg-gradient-to-t from-black/90 to-transparent shrink-0">
+                        <button onclick="prevCard()" class="p-4 rounded-full bg-white/5 hover:bg-white/10 text-gray-300 active:scale-95 transition" style="min-width:52px;min-height:52px"><i data-lucide="chevron-left"></i></button>
+                        <button id="recordBtn" onclick="toggleRecording()" class="p-5 rounded-full bg-purple-600 text-white shadow-[0_0_20px_rgba(147,51,234,0.3)] transition-all transform hover:scale-105 active:scale-95" style="min-width:60px;min-height:60px"><i data-lucide="mic"></i></button>
+                        <button onclick="nextCard()" class="p-4 rounded-full bg-white/5 hover:bg-white/10 text-gray-300 active:scale-95 transition" style="min-width:52px;min-height:52px"><i data-lucide="chevron-right"></i></button>
+                    </div>
+                </div>
+            `;
+            lucide.createIcons();
+        }
+        updatePlayerContent();
+        setupKeyboard();
+    }
+
+    function setupKeyboard() {
+        document.onkeydown = function(e) {
+            if (e.key === 'ArrowRight') nextCard();
+            if (e.key === 'ArrowLeft')  prevCard();
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                const s = document.querySelector('.card-scroll-area');
+                if (s) s.scrollBy({ top: e.key === 'ArrowDown' ? 80 : -80, behavior: 'smooth' });
+            }
+        };
+    }
+
+    function buildThemeStrip(card) {
+        const strip = document.getElementById('themeStrip');
+        if (!strip) return;
+        const themes = AppState.themes;
+        const n = themes.length;
+        const activeIdx = themes.indexOf(AppState.currentTheme);
+        strip.innerHTML = '';
+        [-1, 0, 1].forEach(offset => {
+            const idx = ((activeIdx + offset) % n + n) % n;
+            const t = themes[idx];
+            const isActive = offset === 0;
+            const div = document.createElement('div');
+            div.className = 'carousel-item' + (isActive ? ' active' : '');
+            div.textContent = t;
+            div.onclick = () => setTheme(t);
+            if (isActive && card) {
+                div.style.borderColor = card.color;
+                div.style.color = card.color;
+                div.style.backgroundColor = 'rgba(255,255,255,0.08)';
+                div.style.boxShadow = `0 0 12px ${card.color}40`;
+                div.style.opacity = '1';
+                div.style.transform = 'scale(1.08)';
+                div.style.fontWeight = 'bold';
+            }
+            strip.appendChild(div);
+        });
+    }
+
+    function shiftTheme(dir) {
+        const themes = AppState.themes;
+        const n = themes.length;
+        const newIdx = ((themes.indexOf(AppState.currentTheme) + dir) % n + n) % n;
+        setTheme(themes[newIdx]);
+    }
+
+    function updatePlayerContent() {
+        if (cardFlipped) {
+            cardFlipped = false;
+            const inner = document.getElementById('cardInner');
+            if (inner) inner.classList.remove('flipped');
+        }
+        const card = getCurrentCard();
+        const content = renderMarkdown(getCardContent(card, AppState.currentTheme));
+        const favs = AppState.favorites;
+        const isFav = favs.includes(card.id);
+
+        document.getElementById('cardPattern').innerText = card.pattern;
+        document.getElementById('cardCategory').innerText = card.category;
+        document.getElementById('cardCategory').style.color = card.color;
+        document.getElementById('cardFace').style.borderColor = card.color;
+        document.getElementById('cardContentText').innerHTML = content;
+
+        const info = CATEGORY_INFO[card.category];
+        if (info) {
+            document.getElementById('backCategoryName').innerText = card.category;
+            document.getElementById('backPattern').innerText = info.pattern;
+            document.getElementById('backDescription').innerText = info.description;
+        }
+
+        document.getElementById('counter').innerText = `${AppState.currentIndex + 1} / ${AppState.activeDeck.length}`;
+        const favBtn = document.getElementById('favBtn');
+        favBtn.className = `p-2 transition rounded-full hover:bg-white/5 ${isFav ? 'text-yellow-400' : 'text-gray-600'}`;
+        favBtn.querySelector('svg').setAttribute('fill', isFav ? 'currentColor' : 'none');
+        buildThemeStrip(card);
+    }
+
+    function handleFileSelect(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            Papa.parse(e.target.result, {
+                header: true,
+                skipEmptyLines: true,
+                complete: function(results) { processCSV(results.data); }
+            });
+        };
+        reader.readAsText(file, 'UTF-8');
+    }
+
+    function setTheme(theme) {
+        AppState.currentTheme = theme;
+        const contentDiv = document.getElementById('cardContentText');
+        contentDiv.style.opacity = '0';
+        contentDiv.style.transform = 'translateY(5px)';
+        setTimeout(() => {
+            updatePlayerContent();
+            contentDiv.style.transition = 'all 0.3s ease';
+            contentDiv.style.opacity = '1';
+            contentDiv.style.transform = 'translateY(0)';
+        }, 150);
+    }
+
+    function nextCard() {
+        const cardInner = document.querySelector('.card-face');
+        cardInner.classList.add('slide-out-left');
+        setTimeout(() => {
+            AppState.currentIndex = (AppState.currentIndex + 1) % AppState.activeDeck.length;
+            updatePlayerContent();
+            cardInner.classList.remove('slide-out-left');
+            cardInner.classList.add('slide-in-right');
+            setTimeout(() => cardInner.classList.remove('slide-in-right'), 300);
+        }, 250);
+    }
+
+    function prevCard() {
+        const cardInner = document.querySelector('.card-face');
+        cardInner.classList.add('slide-out-right');
+        setTimeout(() => {
+            AppState.currentIndex = (AppState.currentIndex - 1 + AppState.activeDeck.length) % AppState.activeDeck.length;
+            updatePlayerContent();
+            cardInner.classList.remove('slide-out-right');
+            cardInner.classList.add('slide-in-left');
+            setTimeout(() => cardInner.classList.remove('slide-in-left'), 300);
+        }, 250);
+    }
+
+    function toggleCategory(catName) {
+        if (AppState.selectedCategories.includes(catName))
+            AppState.selectedCategories = AppState.selectedCategories.filter(c => c !== catName);
+        else AppState.selectedCategories.push(catName);
+    }
+
+    function toggleFavorite() {
+        const card = getCurrentCard();
+        const favs = AppState.favorites;
+        const idx = favs.indexOf(card.id);
+        if (idx > -1) favs.splice(idx, 1);
+        else favs.push(card.id);
+        AppState.favorites = favs;
+        updatePlayerContent();
+    }
+
+    let mediaRecorder = null;
+    let audioChunks = [];
+
+    function toggleRecording() {
+        AppState.isRecording = !AppState.isRecording;
+        const btn = document.getElementById('recordBtn');
+        const ui = langCfg.ui;
+
+        if (AppState.isRecording) {
+            navigator.mediaDevices.getUserMedia({ audio: true })
+                .then(stream => {
+                    audioChunks = [];
+                    mediaRecorder = new MediaRecorder(stream);
+                    mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
+                    mediaRecorder.start();
+                    btn.classList.remove('bg-purple-600','text-white','shadow-[0_0_20px_rgba(147,51,234,0.3)]');
+                    btn.classList.add('recording-pulse','bg-red-500/10','border','border-red-500');
+                    btn.innerHTML = '<i data-lucide="square"></i>';
+                    lucide.createIcons();
+                })
+                .catch(() => { AppState.isRecording = false; alert(ui.micDenied); });
+        } else {
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.onstop = () => {
+                    const blob = new Blob(audioChunks, { type: 'audio/webm' });
+                    const now = new Date();
+                    const pad = n => String(n).padStart(2, '0');
+                    const dateStr = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
+                    const timeStr = `${pad(now.getHours())}-${pad(now.getMinutes())}`;
+                    const filename = `HypnoCards_${currentLang}_${dateStr}_${timeStr}.webm`;
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url; a.download = filename; a.click();
+                    URL.revokeObjectURL(url);
+                    const card = getCurrentCard();
+                    const recs = AppState.recordings;
+                    recs.unshift({ id: Date.now(), name: filename, date: `${dateStr} ${pad(now.getHours())}:${pad(now.getMinutes())}`, pattern: card.pattern, theme: AppState.currentTheme });
+                    AppState.recordings = recs;
+                    mediaRecorder.stream.getTracks().forEach(t => t.stop());
+                };
+                mediaRecorder.stop();
+            }
+            btn.classList.add('bg-purple-600','text-white','shadow-[0_0_20px_rgba(147,51,234,0.3)]');
+            btn.classList.remove('recording-pulse','bg-red-500/10','border','border-red-500');
+            btn.innerHTML = '<i data-lucide="mic"></i>';
+            lucide.createIcons();
+        }
+    }
+
+    function clearData() {
+        if (confirm(langCfg.ui.resetConfirm)) { localStorage.clear(); location.reload(); }
+    }
+
+    // ============================================================
+    // INIT
+    // ============================================================
+    applyLanguage(currentLang);
+
+    </script>
+</body>
+</html>
