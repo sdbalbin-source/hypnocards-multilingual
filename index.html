@@ -38,9 +38,10 @@
 
         /* --- Hypnotic Spiral Background --- */
         .hypno-container {
-            position: absolute; top: 0; left: 0;
+            position: fixed; top: 0; left: 0;
             width: 100%; height: 100%;
-            overflow: hidden; z-index: -2; background: #000;
+            overflow: hidden; z-index: 0; background: #000;
+            pointer-events: none;
         }
         .hypno-spiral {
             position: absolute; top: 50%; left: 50%;
@@ -74,6 +75,7 @@
             border-radius: 1.5rem;
             border-top: 4px solid rgba(255,255,255,0.2);
             overflow: hidden;
+            cursor: pointer;
         }
         .card-face { background: var(--card-glass); backdrop-filter: blur(20px); }
         .card-face-back {
@@ -96,6 +98,14 @@
             background: linear-gradient(to top, rgba(10,8,20,0.9), transparent);
         }
         .card-content-text { line-height: 1.75; }
+        .card-content-text .variation-block { 
+            margin-bottom: 1.2rem; 
+            padding-bottom: 1.2rem;
+            border-bottom: 1px solid rgba(255,255,255,0.07);
+        }
+        .card-content-text .variation-block:last-child { 
+            border-bottom: none; margin-bottom: 0; padding-bottom: 0;
+        }
         .card-content-wrapper { padding: 0.5rem 0.25rem; }
 
         .info-btn {
@@ -168,7 +178,7 @@
         .lang-btn.active { border-color: #a855f7; color: #d8b4fe; background: rgba(168,85,247,0.15); }
         .lang-btn.disabled { opacity: 0.3; cursor: not-allowed; pointer-events: none; }
 
-        #app { position: relative; width: 100vw; height: 100dvh; overflow: hidden; }
+        #app { position: relative; width: 100vw; height: 100dvh; overflow: hidden; z-index: 1; }
     </style>
 </head>
 <body class="ltr">
@@ -361,23 +371,23 @@
         currentLang = lang;
         langCfg = LANGUAGE_CONFIG[lang];
         localStorage.setItem('hypno_lang', lang);
-
-        // Apply dir + font class
         document.documentElement.lang = lang;
         document.documentElement.dir = langCfg.dir;
         document.body.classList.toggle('rtl', langCfg.dir === 'rtl');
         document.body.classList.toggle('ltr', langCfg.dir !== 'rtl');
-
-        // Reset state
         AppState.cards = [];
         AppState.rawRows = [];
         AppState.categories = [];
         AppState.themes = [];
         CATEGORY_INFO = {};
-
-        // Try loading from storage for this language
-        loadFromStorage();
-        renderWelcome();
+        const hasStorage = loadFromStorage();
+        if (hasStorage) {
+            renderWelcome();
+        } else {
+            // Try auto-loading from server
+            renderWelcome(); // show loading screen first
+            autoLoadCSV(lang);
+        }
     }
 
     function switchLanguage(lang) {
@@ -477,9 +487,8 @@
             if (theme === 'General' || theme === 'Dynamic' || theme === 'Static' || !theme) {
                 card.staticContent = card.staticContent ? card.staticContent + '<br><br>' + content : content;
             } else {
-                card.variations[theme] = card.variations[theme]
-                    ? card.variations[theme] + '<br><br>' + content
-                    : content;
+                if (!card.variations[theme]) card.variations[theme] = [];
+                card.variations[theme].push(content);
             }
         });
 
@@ -673,12 +682,20 @@
     function getCurrentCard() { return AppState.activeDeck[AppState.currentIndex]; }
 
     function getCardContent(card, theme) {
-        if (card.variations && card.variations[theme]) return card.variations[theme];
-        if (card.variations && card.variations[AppState.themes[0]]) return card.variations[AppState.themes[0]];
-        if (card.staticContent) return card.staticContent;
-        const keys = Object.keys(card.variations || {});
-        if (keys.length > 0) return card.variations[keys[0]];
-        return langCfg.ui.noContent;
+        let items = null;
+        if (card.variations && card.variations[theme]) items = card.variations[theme];
+        else if (card.variations && card.variations[AppState.themes[0]]) items = card.variations[AppState.themes[0]];
+        else if (card.staticContent) return card.staticContent;
+        else {
+            const keys = Object.keys(card.variations || {});
+            if (keys.length > 0) items = card.variations[keys[0]];
+        }
+        if (!items) return langCfg.ui.noContent;
+        // items is an array — render each as a styled block
+        if (Array.isArray(items)) {
+            return items.map(txt => `<div class="variation-block">${txt}</div>`).join('');
+        }
+        return items;
     }
 
     function renderMarkdown(text) {
@@ -686,11 +703,28 @@
         return text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
     }
 
+    let touchStartX = 0, touchStartY = 0;
+
     function toggleCardFlip() {
         const inner = document.getElementById('cardInner');
         if (!inner) return;
         cardFlipped = !cardFlipped;
         inner.classList.toggle('flipped', cardFlipped);
+    }
+
+    function setupCardTouch() {
+        const cardInner = document.getElementById('cardInner');
+        if (!cardInner) return;
+        cardInner.addEventListener('touchstart', e => {
+            touchStartX = e.touches[0].clientX;
+            touchStartY = e.touches[0].clientY;
+        }, { passive: true });
+        cardInner.addEventListener('touchend', e => {
+            const dx = Math.abs(e.changedTouches[0].clientX - touchStartX);
+            const dy = Math.abs(e.changedTouches[0].clientY - touchStartY);
+            // Only flip if it was a tap (not a swipe)
+            if (dx < 10 && dy < 10) toggleCardFlip();
+        }, { passive: true });
     }
 
     function renderPlayer() {
@@ -774,6 +808,7 @@
         }
         updatePlayerContent();
         setupKeyboard();
+        setupCardTouch();
     }
 
     function setupKeyboard() {
@@ -978,6 +1013,78 @@
     // INIT
     // ============================================================
     applyLanguage(currentLang);
+
+    // ============================================================
+    // AUTO-LOAD CSV FROM SERVER
+    // ============================================================
+    function autoLoadCSV(lang) {
+        const cfg = LANGUAGE_CONFIG[lang];
+        if (!cfg) return;
+        fetch(cfg.csvFile)
+            .then(r => {
+                if (!r.ok) throw new Error('CSV not found');
+                return r.text();
+            })
+            .then(text => {
+                Papa.parse(text, {
+                    header: true,
+                    skipEmptyLines: true,
+                    complete: function(results) {
+                        // Silent load — no alert
+                        const data = results.data;
+                        const t = cfg.themeOrder;
+                        const cleanData = data.map(row => {
+                            const newRow = {};
+                            Object.keys(row).forEach(k => newRow[k.trim()] = row[k]);
+                            return newRow;
+                        });
+                        const categoryInfoRows = cleanData.filter(r => r.ID === 'CATEGORY_INFO');
+                        const cardRows = cleanData.filter(r => r.ID !== 'CATEGORY_INFO');
+                        CATEGORY_INFO = {};
+                        categoryInfoRows.forEach(r => {
+                            const cat = (r.Category || '').trim();
+                            if (cat) CATEGORY_INFO[cat] = { pattern: (r.Pattern||'').trim(), description: (r.Content||'').trim() };
+                        });
+                        AppState.rawRows = cardRows;
+                        const themesSet = new Set();
+                        const skipThemes = new Set(['Dynamic','Static','General','']);
+                        cleanData.forEach(row => { if (row.Theme && row.Theme.trim().length > 1 && !skipThemes.has(row.Theme.trim())) themesSet.add(row.Theme.trim()); });
+                        AppState.themes = t.filter(th => themesSet.has(th));
+                        themesSet.forEach(th => { if (!AppState.themes.includes(th)) AppState.themes.push(th); });
+                        if (AppState.themes.length === 0) AppState.themes = [...t];
+                        const catsMap = new Map();
+                        cleanData.forEach(row => { const n = row.Category ? row.Category.trim() : 'General'; if (!catsMap.has(n)) catsMap.set(n, row.Color||'#A0A0A0'); });
+                        AppState.categories = Array.from(catsMap).map(([name,color]) => ({name,color}));
+                        const cardsMap = new Map();
+                        cleanData.forEach(row => {
+                            const pattern = row.Pattern ? row.Pattern.trim() : null;
+                            if (!pattern) return;
+                            if (!cardsMap.has(pattern)) cardsMap.set(pattern, { id: row.ID, pattern, category: row.Category||'General', color: row.Color||catsMap.get(row.Category)||'#fff', variations: {}, staticContent: null });
+                            const card = cardsMap.get(pattern);
+                            const theme = row.Theme ? row.Theme.trim() : 'General';
+                            const content = row.Content;
+                            if (theme === 'General' || theme === 'Dynamic' || theme === 'Static' || !theme) {
+                                card.staticContent = card.staticContent ? card.staticContent + '<br><br>' + content : content;
+                            } else {
+                                if (!card.variations[theme]) card.variations[theme] = [];
+                                card.variations[theme].push(content);
+                            }
+                        });
+                        AppState.cards = Array.from(cardsMap.values());
+                        try {
+                            localStorage.setItem(`${lang}_cards_data_v1`, JSON.stringify(AppState.cards));
+                            localStorage.setItem(`${lang}_themes_data_v1`, JSON.stringify(AppState.themes));
+                            localStorage.setItem(`${lang}_cats_data_v1`, JSON.stringify(AppState.categories));
+                        } catch(e) {}
+                        renderWelcome();
+                    }
+                });
+            })
+            .catch(() => {
+                // CSV not on server — user needs to upload manually
+                console.log('Auto-load failed for', lang, '— manual upload needed');
+            });
+    }
 
     </script>
 </body>
